@@ -1,33 +1,47 @@
 import os
+import json
 import anthropic
 import gspread
+from google.oauth2.service_account import Credentials
 
-# 1. 깃허브 금고(Secrets)에서 안전하게 열쇠 꺼내오기
+# 깃허브 금고(Secrets)에서 값 가져오기
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GOOGLE_SERVICE_ACCOUNT = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
 
-# 2. 우회 발급받은 구글 API 키로 시트 인증하기
-gc = gspread.api_key(GOOGLE_API_KEY)
+# 서비스 계정 정보 로드
+try:
+    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT)
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+    gc = gspread.authorize(creds)
+except Exception as e:
+    print(f"구글 인증 데이터 파싱 실패: {e}")
+    exit(1)
+
 client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
-# 3. 구글 시트 열기 및 마지막 행 데이터 읽기
-doc = gc.open("웰니스_콘텐츠_마스터_캘린더")
-calendar_sheet = doc.worksheet("마스터_캘린더")
+# 구글 시트 열기
+try:
+    doc = gc.open("웰니스_콘텐츠_마스터_캘린더")
+    calendar_sheet = doc.worksheet("마스터_캘린더")
+except Exception as e:
+    print(f"구글 시트를 열 수 없습니다. 이메일 공유를 확인하세요: {e}")
+    exit(1)
 
 all_rows = calendar_sheet.get_all_records()
 if not all_rows:
-    print("분석할 새 데이터가 시트에 없습니다.")
+    print("분석할 데이터가 시트에 없습니다.")
     exit()
 
-last_row_idx = len(all_rows) + 1  # 실제 구글 시트의 행 번호
+last_row_idx = len(all_rows) + 1
 last_row = all_rows[-1]
 
-# 중복 실행 방지 (이미 최종 캡션이 채워져 있다면 패스)
-if last_row.get("최종 인스타그램 캡션"):
+# 이미 최종 결과가 있으면 중단
+if str(last_row.get("最终 인스타그램 캡션", "")).strip() or str(last_row.get("최종 인스타그램 캡션", "")).strip():
     print("이미 처리가 완료된 최신 행입니다.")
     exit()
 
-# 4. 고도화된 웰니스 전용 프롬프트 지침
+# 웰니스 슬로우핏 브랜드 페르소나 주입
 system_prompt = """
 너는 2030 한국 여성들을 타깃으로 하는 프리미엄 웰니스 브랜드 'gulgae.slowfit'의 수석 브랜드 디렉터이다.
 사용자의 인풋 데이터를 바탕으로 타깃의 결핍을 채워주는 교집합 주제를 도출하고, 인스타그램 최적 포맷(릴스 vs 피드 게시물)을 판별하라.
@@ -41,7 +55,6 @@ user_input = f"""
 - 이번 주 일상 메모: {last_row.get('이번 주 일상 메모')}
 """
 
-# 5. 클로드 API 호출
 response = client.messages.create(
     model="claude-3-5-sonnet",
     max_tokens=2000,
@@ -49,15 +62,15 @@ response = client.messages.create(
     messages=[{"role": "user", "content": user_input}]
 )
 
-# 6. 결과를 파싱하여 구글 시트 우측 칸에 자동으로 채워넣기
 result = response.content[0].text.split("||")
 
 if len(result) >= 5:
-    calendar_sheet.update_cell(last_row_idx, 5, result[0].strip()) # 추천 시간
-    calendar_sheet.update_cell(last_row_idx, 6, result[1].strip()) # 주제
-    calendar_sheet.update_cell(last_row_idx, 7, result[2].strip()) # 포맷
-    calendar_sheet.update_cell(last_row_idx, 8, result[3].strip()) # 연출 가이드
-    calendar_sheet.update_cell(last_row_idx, 9, result[4].strip()) # 최종 캡션
-    print("구글 시트에 성공적으로 인스타 콘텐츠를 업데이트했습니다!")
+    # 5번째 열부터 9번째 열까지 순서대로 업데이트
+    calendar_sheet.update_cell(last_row_idx, 5, result[0].strip())
+    calendar_sheet.update_cell(last_row_idx, 6, result[1].strip())
+    calendar_sheet.update_cell(last_row_idx, 7, result[2].strip())
+    calendar_sheet.update_cell(last_row_idx, 8, result[3].strip())
+    calendar_sheet.update_cell(last_row_idx, 9, result[4].strip())
+    print("🎉 구글 시트에 인스타 콘텐츠 자동 입력 완료!")
 else:
-    print("클로드 답변 형식이 올바르지 않습니다:", response.content[0].text)
+    print("형식 오류 반환됨:", response.content[0].text)
