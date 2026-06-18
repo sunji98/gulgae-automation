@@ -1,0 +1,29 @@
+name: 웰니스 인스타 자동화 스케줄러
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # 한국 시간 매주 일요일 오전 9시 자동 실행
+  workflow_dispatch: # 내가 원할 때 언제든 수동으로 실행 버튼을 누를 수도 있게 설정
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 코드 체크아웃
+      uses: actions/checkout@v3
+
+    - name: 파이썬 세팅
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: 필수 라이브러리 설치
+      run: |
+        pip install gspread anthropic
+
+    - name: 자동화 메인 코드 실행
+      env:
+        CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      run: python main.py
