@@ -25,5 +25,5 @@ jobs:
     - name: 자동화 메인 코드 실행
       env:
         CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
       run: python main.py
