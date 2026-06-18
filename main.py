@@ -1,28 +1,32 @@
 import os
-import json
 import anthropic
 import gspread
-from google.oauth2.service_account import Credentials
+from google.auth import default
+from google.auth.transport.requests import Request
 
 # 깃허브 금고(Secrets)에서 값 가져오기
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
-GOOGLE_SERVICE_ACCOUNT = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 
-# 서비스 계정 정보 로드
+# 구글 인증 (Workload Identity Federation - JSON 키 파일 없이 인증)
 try:
-    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT)
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds, _ = default(scopes=scopes)
+    if not creds.valid:
+        creds.refresh(Request())
     gc = gspread.authorize(creds)
 except Exception as e:
-    print(f"구글 인증 데이터 파싱 실패: {e}")
+    print(f"구글 인증 실패: {e}")
     exit(1)
 
 client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
 # 구글 시트 열기
 try:
-    doc = gc.open("웰니스_콘텐츠_마스터_캘린더")
+    doc = gc.open_by_key(SPREADSHEET_ID)
     calendar_sheet = doc.worksheet("마스터_캘린더")
 except Exception as e:
     print(f"구글 시트를 열 수 없습니다. 이메일 공유를 확인하세요: {e}")
@@ -56,16 +60,14 @@ user_input = f"""
 """
 
 response = client.messages.create(
-    model="claude-3-5-sonnet",
+    model="claude-sonnet-4-6",
     max_tokens=2000,
     system=system_prompt,
     messages=[{"role": "user", "content": user_input}]
 )
 
 result = response.content[0].text.split("||")
-
 if len(result) >= 5:
-    # 5번째 열부터 9번째 열까지 순서대로 업데이트
     calendar_sheet.update_cell(last_row_idx, 5, result[0].strip())
     calendar_sheet.update_cell(last_row_idx, 6, result[1].strip())
     calendar_sheet.update_cell(last_row_idx, 7, result[2].strip())
