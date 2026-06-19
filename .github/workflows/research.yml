@@ -1,0 +1,37 @@
+name: 굴개 웰니스 리서치 (월 1회)
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 매월 1일 오전 9시 (한국시간)
+  workflow_dispatch:       # 수동 실행 가능
+
+permissions:
+  contents: read
+  id-token: write          # Workload Identity Federation 필수
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Google Cloud 인증 (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: 파이썬 세팅
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 필수 라이브러리 설치
+        run: pip install gspread anthropic google-auth
+
+      - name: 웰니스 리서치 실행
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: python research.py
